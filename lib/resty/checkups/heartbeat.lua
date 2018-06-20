@@ -322,6 +322,18 @@ local heartbeat = {
             end
         end
 
+        local health_resp = opts.health_resp
+        ngx.log(ngx.ERR, "id: ", id, ", health_resp: " .. health_resp)
+        if health_resp then
+            local line, err = readline()
+            while line ~= health_resp do
+                line = readline()
+            end
+            if line ~= health_resp then
+                return _M.STATUS_ERR, "bad health response"
+            end
+        end
+
         sock:setkeepalive()
 
         return _M.STATUS_OK
