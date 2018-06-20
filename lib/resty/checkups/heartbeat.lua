@@ -1,36 +1,38 @@
 -- Copyright (C) 2014-2016 UPYUN, Inc.
 
-local cjson         = require "cjson.safe"
+local cjson = require "cjson.safe"
 
-local base          = require "resty.checkups.base"
-local subsystem     = require "resty.subsystem"
+local base = require "resty.checkups.base"
+local subsystem = require "resty.subsystem"
 
-local str_sub       = string.sub
-local lower         = string.lower
-local tab_sort      = table.sort
-local tab_concat    = table.concat
-local tab_insert    = table.insert
+local str_sub = string.sub
+local lower = string.lower
+local tab_sort = table.sort
+local tab_concat = table.concat
+local tab_insert = table.insert
 
-local re_gmatch     = ngx.re.gmatch
-local re_find       = ngx.re.find
-local log           = ngx.log
-local localtime     = ngx.localtime
-local ERR           = ngx.ERR
-local WARN          = ngx.WARN
-local now           = ngx.now
-local tcp           = ngx.socket.tcp
-local update_time   = ngx.update_time
+local re_gmatch = ngx.re.gmatch
+local re_find = ngx.re.find
+local log = ngx.log
+local localtime = ngx.localtime
+local ERR = ngx.ERR
+local WARN = ngx.WARN
+local now = ngx.now
+local tcp = ngx.socket.tcp
+local update_time = ngx.update_time
 
-local spawn         = ngx.thread.spawn
-local wait          = ngx.thread.wait
+local spawn = ngx.thread.spawn
+local wait = ngx.thread.wait
 
-local get_shm       = subsystem.get_shm
-local mutex         = get_shm("mutex")
-local state         = get_shm("state")
+local get_shm = subsystem.get_shm
+local mutex = get_shm("mutex")
+local state = get_shm("state")
 
 local _M = {
     _VERSION = "0.11",
-    STATUS_OK = base.STATUS_OK, STATUS_UNSTABLE = base.STATUS_UNSTABLE, STATUS_ERR = base.STATUS_ERR
+    STATUS_OK = base.STATUS_OK,
+    STATUS_UNSTABLE = base.STATUS_UNSTABLE,
+    STATUS_ERR = base.STATUS_ERR
 }
 
 local resty_redis, resty_mysql
@@ -69,11 +71,11 @@ local function update_peer_status(srv, sensibility)
             old_status.status = _M.STATUS_OK
         end
         old_status.fail_num = 0
-    else  -- status == _M.STATUS_ERR or _M.STATUS_UNSTABLE
+    else -- status == _M.STATUS_ERR or _M.STATUS_UNSTABLE
         old_status.fail_num = old_status.fail_num + 1
 
         if old_status.status ~= status and
-            old_status.fail_num >= sensibility then
+                old_status.fail_num >= sensibility then
             old_status.status = status
             old_status.lastmodified = localtime()
         end
@@ -102,7 +104,7 @@ end
 
 
 local heartbeat = {
-    general = function (host, port, ups)
+    general = function(host, port, ups)
         local id = host .. ':' .. port
 
         local sock = tcp()
@@ -117,8 +119,7 @@ local heartbeat = {
 
         return _M.STATUS_OK
     end,
-
-    redis = function (host, port, ups)
+    redis = function(host, port, ups)
         local id = host .. ':' .. port
 
         if not resty_redis then
@@ -153,7 +154,7 @@ local heartbeat = {
 
         local replication = {}
         local statuses = {
-            status = _M.STATUS_OK ,
+            status = _M.STATUS_OK,
             replication = replication
         }
 
@@ -190,12 +191,12 @@ local heartbeat = {
         end
 
         local replication_field = {
-            role                           = true,
-            master_host                    = true,
-            master_port                    = true,
-            master_link_status             = true,
+            role = true,
+            master_host = true,
+            master_port = true,
+            master_link_status = true,
             master_link_down_since_seconds = true,
-            master_last_io_seconds_ago     = true,
+            master_last_io_seconds_ago = true,
         }
 
         local other_field = {
@@ -229,8 +230,7 @@ local heartbeat = {
 
         return statuses
     end,
-
-    mysql = function (host, port, ups)
+    mysql = function(host, port, ups)
         local id = host .. ':' .. port
 
         if not resty_mysql then
@@ -250,14 +250,14 @@ local heartbeat = {
 
         db:set_timeout(ups.timeout * 1000)
 
-        local ok, err, errno, sqlstate = db:connect{
+        local ok, err, errno, sqlstate = db:connect {
             host = host,
             port = port,
             database = ups.name,
             user = ups.user,
             password = ups.pass,
             charset = ups.charset,
-            max_packet_size = 1024*1024
+            max_packet_size = 1024 * 1024
         }
 
         if not ok then
@@ -269,7 +269,6 @@ local heartbeat = {
 
         return _M.STATUS_OK
     end,
-
     http = function(host, port, ups)
         local id = host .. ':' .. port
 
@@ -323,12 +322,16 @@ local heartbeat = {
         end
 
         local health_resp = opts.health_resp
-        ngx.log(ngx.ERR, "id: ", id, ", health_resp: " .. health_resp)
         if health_resp then
             local line, err = readline()
             while line ~= health_resp do
-                line = readline()
+                line, err = readline()
+                if err then
+                    log(ERR, "id: ", id, ", health_resp: " .. err)
+                    return _M.STATUS_ERR, "failed to get response content: " .. err
+                end
             end
+            log(ERR, "id: ", id, ", health_resp: " .. line)
             if line ~= health_resp then
                 return _M.STATUS_ERR, "bad health response"
             end
@@ -344,7 +347,7 @@ local heartbeat = {
 local function cluster_heartbeat(skey)
     local ups = base.upstream.checkups[skey]
     if ups.enable == false or (ups.enable == nil and
-        base.upstream.default_heartbeat_enable == false) then
+            base.upstream.default_heartbeat_enable == false) then
         return
     end
 
@@ -373,7 +376,7 @@ local function cluster_heartbeat(skey)
         for _, srv in ipairs(cls.servers) do
             local peer_key = base._gen_key(skey, srv)
             local cb_heartbeat = ups_heartbeat or heartbeat[ups_typ] or
-                heartbeat["general"]
+                    heartbeat["general"]
             local statuses, err = cb_heartbeat(srv.host, srv.port, ups)
 
             local status
@@ -390,9 +393,9 @@ local function cluster_heartbeat(skey)
             end
 
             local srv_status = {
-                peer_key = peer_key ,
-                status   = status   ,
-                statuses = statuses ,
+                peer_key = peer_key,
+                status = status,
+                statuses = statuses,
             }
 
             if status == _M.STATUS_OK then
@@ -465,7 +468,7 @@ function _M.active_checkup(premature)
         thread[#thread + 1] = spawn(cluster_heartbeat, skey)
     end
 
-    for _,v in ipairs(thread) do
+    for _, v in ipairs(thread) do
         if v then
             wait(v)
         end
